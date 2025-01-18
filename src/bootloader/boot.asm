@@ -82,6 +82,46 @@ main:
 .halt:
     jmp .halt
 
+;
+; Disk routines
+;
+
+;
+; Converts LBA address to CHS address
+; Args:
+;     ax - LBA address
+; Returns:
+;     sector   -> cx (bits 0-5 from the right)
+;     cylinder -> cx (bits 6-15)
+;     head     -> dh
+lba_to_chs:                          ; Logical Block Addressing -> Cylinder Head Sector
+    push ax
+    push dx
+
+    xor dx, dx                       ; dx = 0
+    div word [bdb_sectors_per_track] ; ax = LBA / SectorsPerTrack
+                                     ; dx = LBA % SectorsPerTrack
+    inc dx                           ; dx = (LBA % SectorsPerTrack + 1) = sector
+    mov cx, dx                       ; cx = sector
+
+    xor dx, dx                       ; dx = 0
+    div word [bdb_heads]             ; ax = (LBA / SectorsPerTrack) / Heads = cylinder
+                                     ; dx = (LBA / SectorsPerTrack) % Heads = head
+    mov dh, dl                       ; dh = head (dh = 8 high bits of dx, dl = low 8 bits of dx; high=left, low=right)
+    mov ch, al                       ; ch = lower 8 bits of cylinder
+    shl ah, 6                        ; shift into place
+    or  cl, ah                       ; place upper two bits of cylinder into the top of cl
+                                     ; CX =       ---CH--- ---CL---
+                                     ; cylinder : 76543210 98
+                                     ; sector   :            543210
+    pop ax                           ; ax = dl (from stack)
+    mov dl, al                       ; dl = ax
+    pop ax                           ; ax = ax (from stack)
+    ret
+
+    
+
+
 msg_hello: db 'Hello World!', 0, ENDL
 
 times 510-($-$$) db 0 ; Pad the program so that the signature begins 511 bytes into the sector
