@@ -12,11 +12,11 @@ nop
 bdb_oem:                   db 'MSWIN4.1'         ; 8 bytes
 bdb_bytes_per_sector:      dw 512                ; Bytes per sector
 bdb_sectors_per_cluster:   db 1                  ; Number of sectors per cluster
-bdb_reserved_sectors:      db 1                  ; Number of reserved sectors
+bdb_reserved_sectors:      dw 1                  ; Number of reserved sectors (supposed to be a word, but mtools says no)
 bdb_fat_count:             db 2                  ; File Allocation Table count
-bdb_dir_entries_count:     dw 0x00E0             ; Number of directory entries
+bdb_dir_entries_count:     dw 0E0h               ; Number of directory entries
 bdb_total_sectors:         dw 2880               ; 2880 * 512 = 1.44 MB
-bdb_media_descriptor_type: db 0xF0               ; 3.5 in. floppy disk
+bdb_media_descriptor_type: db 0F0h               ; 3.5 in. floppy disk
 bdb_sectors_per_fat:       dw 9                  ; 9 sectors per fat
 bdb_sectors_per_track:     dw 18                 ; Number of sectors per track
 bdb_heads:                 dw 2                  ; Head count
@@ -26,7 +26,7 @@ bdb_large_sectors:         dd 0                  ; Large sector count
 ; Extended boot record
 ebr_drive_number:          db 0                  ; Drive number
                            db 0                  ; Random reserved byte ig
-ebr_signature:             db 28h                ; 0x28 or 0x29
+ebr_signature:             db 29h                ; 0x28 or 0x29
 ebr_volume_id:             db 65h, 23h, 72h, 27h ; Four random bytes
 ebr_volume_label:          db ' eatcheese '      ; 11 bytes
 ebr_system_id:             db 'FAT12   '         ; 8 bytes
