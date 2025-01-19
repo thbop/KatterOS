@@ -65,107 +65,158 @@ start:
     push es
     mov ah, 08h
     int 13h
-    jc floppy_error
+    jc floppy_fail
     pop es
 
-    and cl, 3Fh                      ; Remove top two bits
+    and cl, 3Fh                        ; Remove top two bits
     xor ch, ch
-    mov [bdb_sectors_per_track], cx  ; Sector count
+    mov [bdb_sectors_per_track], cx    ; Sector count
 
     inc dh
-    mov [bdb_heads], dh              ; Head count
+    mov [bdb_heads], dh                ; Head count
 
     ; Find LBA of root directory = reserved_sectors + (fats * sectors_per_fat)
     mov ax, [bdb_sectors_per_fat]
     mov bl, [bdb_fat_count]
-    xor bh, bh                       ; Ensure we're only multiplying the low byte
-    mul bx                           ; ax = (fats * sectors_per_fat)
-    add ax, [bdb_reserved_sectors]   ; ax = LBA of root directory
+    xor bh, bh                         ; Ensure we're only multiplying the low byte
+    mul bx                             ; ax = (fats * sectors_per_fat)
+    add ax, [bdb_reserved_sectors]     ; ax = LBA of root directory
     push ax
 
     ; compute size of root directory = (32 * number_of_entries) / bytes_per_sector
     ; https://wiki.osdev.org/FAT#Directories_on_FAT12/16/32
     mov ax, [bdb_dir_entries_count]
-    shl ax, 5                        ; ax *= 32
-    xor dx, dx                       ; dx = 0 (stores remainder)
-    div word [bdb_bytes_per_sector]  ; ax /= 32 (number of sectors we need to read)
+    shl ax, 5                          ; ax *= 32
+    xor dx, dx                         ; dx = 0 (stores remainder)
+    div word [bdb_bytes_per_sector]    ; ax /= 32 (number of sectors we need to read)
 
-    test dx, dx                      ; if dx != 0, add 1
+    test dx, dx                        ; if dx != 0, add 1
     jz .root_dir_after
-    inc ax                           ; Division remainder != 0, add 1
-                                     ; This ensures we have enough sectors (even partially filled ones)
+    inc ax                             ; Division remainder != 0, add 1
+                                       ; This ensures we have enough sectors (even partially filled ones)
 
-.root_dir_after
+.root_dir_after:
 
     ; Read root directory
-    mov cl, al                       ; cl = number of sectors to read = size of root directory
-    pop ax                           ; ax = LBA of root directory
-    mov dl, [ebr_drive_number]       ; dl = drive number
-    mov bx, buffer                   ; es:bx = buffer (ig)
+    mov cl, al                         ; cl = number of sectors to read = size of root directory
+    pop ax                             ; ax = LBA of root directory
+    mov dl, [ebr_drive_number]         ; dl = drive number
+    mov bx, buffer                     ; es:bx = buffer (ig)
     call disk_read
     
     ; Search for kernel.bin
-    xor bx, bx                       ; bx = 0 (how many directory entries we've searched so far)
-    mov di, buffer                   ; di points to our directory entries
+    xor bx, bx                         ; bx = 0 (how many directory entries we've searched so far)
+    mov di, buffer                     ; di points to our directory entries
 
 .search_kernel:
-    mov si, file_kernel_bin          ; Load "KERNEL  BIN"
-    mov cx, 11                       ; Load string length
+    mov si, file_kernel_bin            ; Load "KERNEL  BIN"
+    mov cx, 11                         ; Load string length
     push di
-    repe cmpsb                       ; Repeat while equal (zero flag = 1):
-                                     ;     compare string bytes (ds:si == es:di)
-                                     ;     also cx--
+    repe cmpsb                         ; Repeat while equal (zero flag = 1):
+                                       ;     compare string bytes (ds:si == es:di)
+                                       ;     also cx--
     pop di
-    je .found_kernel                 ; Jump out if we found the file
+    je .found_kernel                   ; Jump out if we found the file
 
-    add di, 32                       ; Moves to the next directory entry
+    add di, 32                         ; Moves to the next directory entry
     inc bx
-    cmp bx, [bdb_dir_entries_count]  ; Check if we have read through all of the entries
-    jl .search_kernel                ; If there are more to check, jump to the beginning of the loop
+    cmp bx, [bdb_dir_entries_count]    ; Check if we have read through all of the entries
+    jl .search_kernel                  ; If there are more to check, jump to the beginning of the loop
 
-    jmp kernel_not_found_error       ; Kernel not found
+    jmp kernel_not_found_error         ; Kernel not found
 
 .found_kernel:
 
     ; di should point to the directory entry
-    mov ax, [di + 26]                ; di now points to the first cluster number (word)
+    mov ax, [di + 26]                  ; di now points to the first cluster number (word)
     mov [kernel_cluster], ax
 
     ; Now find the other clusters in the File Allocation Table
-    mov ax, [bdb_reserved_sectors]   ; ax = LBA of FAT
-    mov bx, buffer                   ; es:bx = buffer
-    mov cl, [bdb_sectors_per_fat]    ; cl = sectors per fat
-    mov dl, [ebr_drive_number]       ; dl = drive number
+    mov ax, [bdb_reserved_sectors]     ; ax = LBA of FAT
+    mov bx, buffer                     ; es:bx = buffer
+    mov cl, [bdb_sectors_per_fat]      ; cl = sectors per fat
+    mov dl, [ebr_drive_number]         ; dl = drive number
     call disk_read
+
+; TODO:
+;     Needs better space efficiency
+;     ; Calculate start of data section (where the clusters are stored)
+;     mov bx, [bdb_reserved_sectors]     ; bx = reserved_sectors
+;     mov ax, [bdb_fat_count]            ; ax = fats
+;     mul word [bdb_sectors_per_fat]     ; ax = (fats * sectors_per_fat)
+;     add bx, ax                         ; bx = reserved_sectors + (fats * sectors_per_fat)
+;     mov ax, [bdb_dir_entries_count]    ; ax = dir_entries_count
+;     mov dx, 32
+;     mul dx                             ; ax = (dir_entries_count * 32) (size in bytes of all entries)
+;     xor dx, dx                         ; prepare for division (remainder is stored in dx)
+;     div word [bdb_bytes_per_sector]    ; ax = (dir_entries_count * 32) / bytes_per_sector (512)
+;     test dx, dx                        ; Ensure we have enough sectors (if there is a remainder, add another sector)
+;     jz .after_calc_data_start
+;     inc ax                             ; ax = size in sectors of the directory entries
+; .after_calc_data_start:
+;     add bx, ax                         ; bx = (reserved_sectors + (fats * sectors_per_fat) + directory entries) (start_sector)
+;     mov [cluster_data_start], bx       ; Save it for later (I'm fairly sure we are going to reference this multiple times
+;                                        ; so I didn't push it to the stack)
     
-    ; Calculate start of data section (where the clusters are stored)
-    mov bx, [bdb_reserved_sectors]   ; bx = reserved_sectors
-    mov ax, [bdb_fat_count]          ; ax = fats
-    mul [bdb_sectors_per_fat]        ; ax = (fats * sectors_per_fat)
-    add bx, ax                       ; bx = reserved_sectors + (fats * sectors_per_fat)
-    mov ax, [bdb_dir_entries_count]  ; ax = dir_entries_count
-    mul ax, 32                       ; ax = (dir_entries_count * 32) (size in bytes of all entries)
-    xor dx, dx                       ; prepare for division (remainder is stored in dx)
-    div word [bdb_bytes_per_sector]  ; ax = (dir_entries_count * 32) / bytes_per_sector (512)
-    test dx, dx                      ; Ensure we have enough sectors (if there is a remainder, add another sector)
-    jz .after_calc_data_start
-    inc ax                           ; ax = size in sectors of the directory entries
-.after_calc_data_start
-    add bx, ax                       ; bx = reserved_sectors + (fats * sectors_per_fat) + directory entries
+    ; Read kernel and process FAT chain
+    mov bx, KERNEL_LOAD_SEGMENT
+    mov es, bx
+    mov bx, KERNEL_LOAD_OFFSET         ; es:bx = KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
 
 .load_kernel_loop:
     ; Read next cluster
     mov ax, [kernel_cluster]
-    sub ax, 2                        ; ax = (kernel_cluster - 2) (-2 = reserved clusters)
-    mul [bdb_sectors_per_cluster]    ; ax = (kernel_cluster - 2) * sectors_per_cluster
+    ; sub ax, 2                          ; ax = (kernel_cluster - 2) (-2 = reserved clusters)
+    ; mul byte [bdb_sectors_per_cluster] ; ax = (kernel_cluster - 2) * sectors_per_cluster
+    ; add ax, [cluster_data_start]       ; ax = (kernel_cluster - 2) * sectors_per_cluster + start_sector (calculated above)
+    add ax, 31                         ; Does what a lot of that other code does
 
 
+    mov cl, 1
+    mov dl, [ebr_drive_number]
+    call disk_read
 
-    ; Read kernel and process FAT chain
-    mov bx, KERNEL_LOAD_SEGMENT
-    mov es, bx
-    mov bx, KERNEL_LOAD_OFFSET       ; es:bx = KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
+    add bx, [bdb_bytes_per_sector]    ; Will overflow bx if kernel.bin is larger than 64KB
+    ; TODO:
+    ;     Check if bx is 0xFFFF and increment the segment (es)
+
+    ; Compute location of next cluster
+    mov ax, [kernel_cluster]
+    mov cx, 3
+    mul cx
+    mov cx, 2
+    div cx                             ; ax = index of entry in FAT
+                                       ; dx = cluster % 2
+    mov si, buffer
+    add si, ax
+    mov ax, [ds:si]                    ; read entry from FAT table at index ax
     
+    or dx, dx
+    jz .even
+
+; Shifting around to deal with loading the 12 bit value
+.odd:
+    shr ax, 4
+    jmp .next_cluster_after
+.even:
+    and ax, 0x0FFF
+.next_cluster_after:
+    cmp ax, 0x0FF8
+    jae .read_finish                ; Jump out once we've read through all the clusters
+
+    mov [kernel_cluster], ax
+    jmp .load_kernel_loop
+
+.read_finish:
+    ; Jump to kernel (finally)
+    mov dl, [ebr_drive_number]       ; Boot device in dl
+    mov ax, KERNEL_LOAD_SEGMENT      ; Set segment registers
+    mov ds, ax
+    mov es, ax
+
+    jmp KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
+
+    jmp wait_key_and_reboot          ; Should never happen
 
     cli                              ; Disable interrupts
     hlt
@@ -316,11 +367,12 @@ disk_reset:
     
 
 
-msg_hello:            db 'Loading KatterOS', ENDL, 0
-msg_read_failed:      db 'Failed to read floppy!', ENDL, 0
-msg_kernel_not_found: db 'Failed to find KERNEL.BIN!', ENDL, 0
+msg_hello:            db 'KATTEROS', ENDL, 0
+msg_read_failed:      db 'Floppy error', ENDL, 0
+msg_kernel_not_found: db 'KERNEL.BIN missing', ENDL, 0
 file_kernel_bin:      db 'KERNEL  BIN'
 kernel_cluster:       dw 0
+cluster_data_start:   dw 0
 
 KERNEL_LOAD_SEGMENT   equ 0x2000     ; equ means #define
 KERNEL_LOAD_OFFSET    equ 0          ; it doesn't allocate memory
