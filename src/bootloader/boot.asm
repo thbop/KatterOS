@@ -34,9 +34,141 @@ ebr_system_id:             db 'FAT12   '         ; 8 bytes
 ;
 ; Code below
 ;
-
 start:
-    jmp main
+    ; Code segment (cs) should be set to 0 with the offset of 0x7C00
+    ; Setup data segments
+    mov ax, 0                  ; We cannot write consts to DS/ES directly
+    mov ds, ax
+    mov es, ax
+
+    ; Setup stack
+    mov ss, ax
+    mov sp, 0x7C00             ; Stack grows downwards, so it won't overwrite our program
+
+    ; Some BIOSes start at 07C0:0000 instead of 0000:7C00
+    ; This trick ensures we are in the right location
+    push es
+    push word .after
+    retf
+.after:
+
+    ; Read something from the floppy disk
+    ; BIOS should set DL to the correct drive number
+    mov [ebr_drive_number], dl ; Set drive number to DL
+
+    ; Show loading message
+    mov si, msg_hello
+    call puts
+
+    ; Read drive parameters from bios instead of relying on
+    ; data from the disk
+    push es
+    mov ah, 08h
+    int 13h
+    jc floppy_error
+    pop es
+
+    and cl, 3Fh                      ; Remove top two bits
+    xor ch, ch
+    mov [bdb_sectors_per_track], cx  ; Sector count
+
+    inc dh
+    mov [bdb_heads], dh              ; Head count
+
+    ; Find LBA of root directory = reserved_sectors + (fats * sectors_per_fat)
+    mov ax, [bdb_sectors_per_fat]
+    mov bl, [bdb_fat_count]
+    xor bh, bh                       ; Ensure we're only multiplying the low byte
+    mul bx                           ; ax = (fats * sectors_per_fat)
+    add ax, [bdb_reserved_sectors]   ; ax = LBA of root directory
+    push ax
+
+    ; compute size of root directory = (32 * number_of_entries) / bytes_per_sector
+    ; https://wiki.osdev.org/FAT#Directories_on_FAT12/16/32
+    mov ax, [bdb_dir_entries_count]
+    shl ax, 5                        ; ax *= 32
+    xor dx, dx                       ; dx = 0 (stores remainder)
+    div word [bdb_bytes_per_sector]  ; ax /= 32 (number of sectors we need to read)
+
+    test dx, dx                      ; if dx != 0, add 1
+    jz .root_dir_after
+    inc ax                           ; Division remainder != 0, add 1
+                                     ; This ensures we have enough sectors (even partially filled ones)
+
+.root_dir_after
+
+    ; Read root directory
+    mov cl, al                       ; cl = number of sectors to read = size of root directory
+    pop ax                           ; ax = LBA of root directory
+    mov dl, [ebr_drive_number]       ; dl = drive number
+    mov bx, buffer                   ; es:bx = buffer (ig)
+    call disk_read
+    
+    ; Search for kernel.bin
+    xor bx, bx                       ; bx = 0 (how many directory entries we've searched so far)
+    mov di, buffer                   ; di points to our directory entries
+
+.search_kernel:
+    mov si, file_kernel_bin          ; Load "KERNEL  BIN"
+    mov cx, 11                       ; Load string length
+    push di
+    repe cmpsb                       ; Repeat while equal (zero flag = 1):
+                                     ;     compare string bytes (ds:si == es:di)
+                                     ;     also cx--
+    pop di
+    je .found_kernel                 ; Jump out if we found the file
+
+    add di, 32                       ; Moves to the next directory entry
+    inc bx
+    cmp bx, [bdb_dir_entries_count]  ; Check if we have read through all of the entries
+    jl .search_kernel                ; If there are more to check, jump to the beginning of the loop
+
+    jmp kernel_not_found_error       ; Kernel not found
+
+.found_kernel:
+
+    ; di should point to the directory entry
+    mov ax, [di + 26]                ; di now points to the first cluster number (word)
+    mov [kernel_cluster], ax
+
+    ; Now find the other clusters in the File Allocation Table
+    mov ax, [bdb_reserved_sectors]   ; ax = LBA of FAT
+    mov bx, buffer                   ; es:bx = buffer
+    mov cl, [bdb_sectors_per_fat]    ; cl = sectors per fat
+    mov dl, [ebr_drive_number]       ; dl = drive number
+    call disk_read
+    
+    ; Calculate start of data section (where the clusters are stored)
+    mov bx, [bdb_reserved_sectors]   ; bx = reserved_sectors
+    mov ax, [bdb_fat_count]          ; ax = fats
+    mul [bdb_sectors_per_fat]        ; ax = (fats * sectors_per_fat)
+    add bx, ax                       ; bx = reserved_sectors + (fats * sectors_per_fat)
+    mov ax, [bdb_dir_entries_count]  ; ax = dir_entries_count
+    mul ax, 32                       ; ax = (dir_entries_count * 32) (size in bytes of all entries)
+    xor dx, dx                       ; prepare for division (remainder is stored in dx)
+    div word [bdb_bytes_per_sector]  ; ax = (dir_entries_count * 32) / bytes_per_sector (512)
+    test dx, dx                      ; Ensure we have enough sectors (if there is a remainder, add another sector)
+    jz .after_calc_data_start
+    inc ax                           ; ax = size in sectors of the directory entries
+.after_calc_data_start
+    add bx, ax                       ; bx = reserved_sectors + (fats * sectors_per_fat) + directory entries
+
+.load_kernel_loop:
+    ; Read next cluster
+    mov ax, [kernel_cluster]
+    sub ax, 2                        ; ax = (kernel_cluster - 2) (-2 = reserved clusters)
+    mul [bdb_sectors_per_cluster]    ; ax = (kernel_cluster - 2) * sectors_per_cluster
+
+
+
+    ; Read kernel and process FAT chain
+    mov bx, KERNEL_LOAD_SEGMENT
+    mov es, bx
+    mov bx, KERNEL_LOAD_OFFSET       ; es:bx = KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
+    
+
+    cli                              ; Disable interrupts
+    hlt
 
 ; Prints a string to the screen
 ; Args:
@@ -62,42 +194,23 @@ puts:
     pop si
     ret
 
-main:
-    ; Code segment (cs) should be set to 0 with the offset of 0x7C00
-    ; Setup data segments
-    mov ax, 0                  ; We cannot write consts to DS/ES directly
-    mov ds, ax
-    mov es, ax
-
-    ; Setup stack
-    mov ss, ax
-    mov sp, 0x7C00             ; Stack grows downwards, so it won't overwrite our program
-
-    ; Read something from the floppy disk
-    ; BIOS should set DL to the correct drive number
-    mov [ebr_drive_number], dl ; Set drive number to DL
-
-    mov ax, 1                  ; Read from second sector
-    mov cl, 1                  ; Read one sector
-    mov bx, 0x7E00             ; Right after the bootloader
-    call disk_read
-
-    ; Print message
-    mov si, msg_hello
-    call puts
-
-    cli
-    hlt
-
 ;
 ; Error handlers
 ;
 floppy_fail:
     mov si, msg_read_failed
     call puts
+    jmp wait_key_and_reboot
+
+kernel_not_found_error:
+    mov si, msg_kernel_not_found
+    call puts
+    jmp wait_key_and_reboot
+
+wait_key_and_reboot:
+    mov ah, 0
     int 16h            ; Wait for a keypress
-    jmp 0FFFFh:0        ; Beginning of the BIOS, should reboot computer
-    hlt
+    jmp 0FFFFh:0       ; Beginning of the BIOS, should reboot computer
 
 .halt:
     cli                ; Disable interrupts to prevent exiting the "halt" state
@@ -203,8 +316,16 @@ disk_reset:
     
 
 
-msg_hello:       db 'Loading KatterOS', ENDL, 0
-msg_read_failed: db 'Failed to read floppy!', ENDL, 0
+msg_hello:            db 'Loading KatterOS', ENDL, 0
+msg_read_failed:      db 'Failed to read floppy!', ENDL, 0
+msg_kernel_not_found: db 'Failed to find KERNEL.BIN!', ENDL, 0
+file_kernel_bin:      db 'KERNEL  BIN'
+kernel_cluster:       dw 0
+
+KERNEL_LOAD_SEGMENT   equ 0x2000     ; equ means #define
+KERNEL_LOAD_OFFSET    equ 0          ; it doesn't allocate memory
 
 times 510-($-$$) db 0 ; Pad the program so that the signature begins 511 bytes into the sector
 dw 0xAA55
+
+buffer:               ; Everything loaded into the next sectors will be after this label
