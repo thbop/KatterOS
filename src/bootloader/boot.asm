@@ -65,21 +65,42 @@ puts:
 main:
     ; Code segment (cs) should be set to 0 with the offset of 0x7C00
     ; Setup data segments
-    mov ax, 0          ; We cannot write consts to DS/ES directly
+    mov ax, 0                  ; We cannot write consts to DS/ES directly
     mov ds, ax
     mov es, ax
 
     ; Setup stack
     mov ss, ax
-    mov sp, 0x7C00     ; Stack grows downwards, so it won't overwrite our program
+    mov sp, 0x7C00             ; Stack grows downwards, so it won't overwrite our program
+
+    ; Read something from the floppy disk
+    ; BIOS should set DL to the correct drive number
+    mov [ebr_drive_number], dl ; Set drive number to DL
+
+    mov ax, 1                  ; Read from second sector
+    mov cl, 1                  ; Read one sector
+    mov bx, 0x7E00             ; Right after the bootloader
+    call disk_read
 
     ; Print message
     mov si, msg_hello
     call puts
 
+    cli
+    hlt
+
+;
+; Error handlers
+;
+floppy_fail:
+    mov si, msg_read_failed
+    call puts
+    int 16h            ; Wait for a keypress
+    jmp 0FFFFh:0        ; Beginning of the BIOS, should reboot computer
     hlt
 
 .halt:
+    cli                ; Disable interrupts to prevent exiting the "halt" state
     jmp .halt
 
 ;
@@ -119,10 +140,71 @@ lba_to_chs:                          ; Logical Block Addressing -> Cylinder Head
     pop ax                           ; ax = ax (from stack)
     ret
 
+;
+; Read sectors from a disk
+; Args
+;     ax    - LBA address
+;     cl    - number of sectors to read (up to 128)
+;     dl    - drive number
+;     es:bx - memory location to store read data (destination)
+disk_read:
+
+    push ax                          ; Save original values of registers we'll modify
+    push bx
+    push cx
+    push dx
+    push di
+
+    push cx                          ; Save original value of cx (since it will be overwritten)
+    call lba_to_chs                  ; Takes in ax as the LBA address and returns CHS (cx, dh)
+    pop ax                           ; AL = number of sectors to read (originally cl)
+
+    mov ah, 02h                      ; Required for BIOS function/interrupt
+    mov di, 3                        ; Retry read 3 times (for real hardware)
+
+.retry:
+    pusha                            ; This BIOS interrupt may mess with our registers, save them for later
+    stc                              ; Set carry flag... to check for a successful read, the carry flag will be cleared
+    int 13h                          ; Calls the BIOS read function given the args we previously supplied
+    jnc .done                        ; Jump if carry clear, success!
+
+    ; If read failed
+    popa
+    call disk_reset
+
+    dec di                           ; di--
+    test di, di                      ; Check if di == 0 (I think it performs a bitwise AND and sets the zero flag if the result is 0)
+    jnz .retry                       ; If di != 0, loop
+
+.fail:
+    jmp floppy_fail                  ; Display error message on fail
+
+.done:
+    popa
+    pop di                           ; Restore registers
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+;
+; Reset disk controller
+; Args
+;     dl - drive number
+disk_reset:
+    pusha
+    mov ah, 0                        ; Causes the disk controller to reset
+    stc
+    int 13h
+    jc floppy_fail                   ; Carry should be clear if reset was successful, otherwise jump to floppy_fail
+    popa
+    ret
     
 
 
-msg_hello: db 'Hello World!', 0, ENDL
+msg_hello:       db 'Loading KatterOS', ENDL, 0
+msg_read_failed: db 'Failed to read floppy!', ENDL, 0
 
 times 510-($-$$) db 0 ; Pad the program so that the signature begins 511 bytes into the sector
 dw 0xAA55
