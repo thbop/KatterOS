@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <ctype.h>
 
 typedef struct {
     uint8_t  bootJumpInstruction[3];
@@ -50,6 +51,7 @@ typedef struct {
 BootSector g_BootSector;
 uint8_t *g_Fat = NULL;                  // File Allocation Table
 DirectoryEntry *g_RootDirectory = NULL;
+uint32_t g_RootDirectoryEnd;            // How many sectors to the data section
 
 
 bool readBootSector(FILE *disk) {
@@ -71,12 +73,12 @@ bool readFat(FILE *disk) {
 
 bool readRootDirectory(FILE *disk) {
     uint32_t lba     = g_BootSector.reservedSectors + g_BootSector.sectorsPerFat * g_BootSector.fatCount;
-    printf("%d\n", lba * 512);
     uint32_t size    = sizeof(DirectoryEntry) * g_BootSector.dirEntryCount;
     uint32_t sectors = ( size / g_BootSector.bytesPerSector );
     if ( size % g_BootSector.bytesPerSector > 0 ) // Round up
         sectors++;
     
+    g_RootDirectoryEnd = lba + sectors;
     g_RootDirectory = (DirectoryEntry*)malloc(sectors * g_BootSector.bytesPerSector);
     return readSectors(disk, lba, sectors, g_RootDirectory);
 }
@@ -89,6 +91,25 @@ DirectoryEntry *findFile(const char *name) {
         }
     }
     return NULL;
+}
+
+bool readFile(DirectoryEntry *fileEntry, FILE *disk, uint8_t *outputBuffer) {
+    bool ok = true;
+    uint16_t currentCluster = fileEntry->firstClusterLow;
+
+    do {
+        uint32_t lba = g_RootDirectoryEnd + (currentCluster-2) * g_BootSector.sectorsPerCluser; // -2 since the first 2 clusters are reserved
+        ok = ok && readSectors(disk, lba, g_BootSector.sectorsPerCluser, outputBuffer);
+        outputBuffer += g_BootSector.sectorsPerCluser * g_BootSector.bytesPerSector; // Cheeky
+
+        uint32_t fatIndex = (currentCluster * 3) / 2; // currentCluster * 3/2 since each FAT entry is 12 bits
+        if (currentCluster % 2 == 0)
+            currentCluster = (*(uint16_t*)(g_Fat + fatIndex)) & 0x0FFF;
+        else
+            currentCluster = (*(uint16_t*)(g_Fat + fatIndex)) >> 4;
+    } while (ok && currentCluster < 0x0FF8); // 0x0FF8 marks the end of the cluster chain
+
+    return ok;
 }
 
 int main(int argc, char **argv) {
@@ -123,16 +144,30 @@ int main(int argc, char **argv) {
     }
     
     // printf("%d\n", g_RootDirectory[0].size);
-
-    if ( !findFile(argv[2]) ) {
+    DirectoryEntry *fileEntry = findFile(argv[2]);
+    if ( !fileEntry ) {
         fprintf(stderr, "Failed to find file \"%s\"!\n", argv[2]);
         free(g_Fat);
         free(g_RootDirectory);
         return -5;
     }
-
+    uint8_t *buffer = (uint8_t*)malloc(fileEntry->size + g_BootSector.bytesPerSector);
+    if ( !readFile(fileEntry, disk, buffer) ) {
+        fprintf(stderr, "Failed to read file \"%s\"!\n", argv[2]);
+        free(g_Fat);
+        free(g_RootDirectory);
+        free(buffer);
+        return -6;
+    }
+    for ( size_t i = 0; i < fileEntry->size; i++ ) {
+        if ( isprint(buffer[i]) ) fputc(buffer[i], stdout);
+        else                      printf("<%02X>", buffer[i]);
+    }
+    printf("\n");
+    
     free(g_Fat);
     free(g_RootDirectory);
+    free(buffer);
     fclose(disk);
     return 0;
 }
