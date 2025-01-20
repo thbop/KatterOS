@@ -4,3 +4,5 @@
 *.ini
 *.exe
 *.err
+*.obj
+*.map
