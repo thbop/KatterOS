@@ -367,12 +367,12 @@ disk_reset:
     
 
 
-msg_hello:            db 'KATTEROS', ENDL, 0
+msg_hello:            db 'Loading', ENDL, 0
 msg_read_failed:      db 'Floppy error', ENDL, 0
-msg_kernel_not_found: db 'KERNEL.BIN missing', ENDL, 0
-file_kernel_bin:      db 'KERNEL  BIN'
+msg_kernel_not_found: db 'STAGE1.BIN missing', ENDL, 0
+file_kernel_bin:      db 'STAGE1  BIN'
 kernel_cluster:       dw 0
-cluster_data_start:   dw 0
+; cluster_data_start:   dw 0
 
 KERNEL_LOAD_SEGMENT   equ 0x2000     ; equ means #define
 KERNEL_LOAD_OFFSET    equ 0          ; it doesn't allocate memory

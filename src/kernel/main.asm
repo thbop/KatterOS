@@ -39,5 +39,5 @@ start:
         pop si
         ret
 
-msg_hello: db 'Hello World!', 0, ENDL
+msg_hello: db 'Hello World from the Kernel!!!', 0, ENDL
 
