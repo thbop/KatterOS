@@ -13,6 +13,7 @@ entry:
     mov bp, sp                         ; Stack base pointer = Stack pointer
     sti
 
+
     ; Expect boot drive in dl, send it as an argument to cstart
     xor dh, dh
     push dx

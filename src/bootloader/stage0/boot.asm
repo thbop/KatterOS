@@ -104,32 +104,32 @@ start:
     mov bx, buffer                     ; es:bx = buffer (ig)
     call disk_read
     
-    ; Search for kernel.bin
+    ; Search for stage1.bin
     xor bx, bx                         ; bx = 0 (how many directory entries we've searched so far)
     mov di, buffer                     ; di points to our directory entries
 
-.search_kernel:
-    mov si, file_kernel_bin            ; Load "KERNEL  BIN"
+.search_stage1:
+    mov si, file_stage1_bin            ; Load "STAGE1  BIN"
     mov cx, 11                         ; Load string length
     push di
     repe cmpsb                         ; Repeat while equal (zero flag = 1):
                                        ;     compare string bytes (ds:si == es:di)
                                        ;     also cx--
     pop di
-    je .found_kernel                   ; Jump out if we found the file
+    je .found_stage1                   ; Jump out if we found the file
 
     add di, 32                         ; Moves to the next directory entry
     inc bx
     cmp bx, [bdb_dir_entries_count]    ; Check if we have read through all of the entries
-    jl .search_kernel                  ; If there are more to check, jump to the beginning of the loop
+    jl .search_stage1                  ; If there are more to check, jump to the beginning of the loop
 
-    jmp kernel_not_found_error         ; Kernel not found
+    jmp stage1_not_found_error         ; Kernel not found
 
-.found_kernel:
+.found_stage1:
 
     ; di should point to the directory entry
     mov ax, [di + 26]                  ; di now points to the first cluster number (word)
-    mov [kernel_cluster], ax
+    mov [stage1_cluster], ax
 
     ; Now find the other clusters in the File Allocation Table
     mov ax, [bdb_reserved_sectors]     ; ax = LBA of FAT
@@ -158,17 +158,17 @@ start:
 ;     mov [cluster_data_start], bx       ; Save it for later (I'm fairly sure we are going to reference this multiple times
 ;                                        ; so I didn't push it to the stack)
     
-    ; Read kernel and process FAT chain
-    mov bx, KERNEL_LOAD_SEGMENT
+    ; Read stage1 and process FAT chain
+    mov bx, STAGE1_LOAD_SEGMENT
     mov es, bx
-    mov bx, KERNEL_LOAD_OFFSET         ; es:bx = KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
+    mov bx, STAGE1_LOAD_OFFSET         ; es:bx = STAGE1_LOAD_SEGMENT:STAGE1_LOAD_OFFSET
 
-.load_kernel_loop:
+.load_stage1_loop:
     ; Read next cluster
-    mov ax, [kernel_cluster]
-    ; sub ax, 2                          ; ax = (kernel_cluster - 2) (-2 = reserved clusters)
-    ; mul byte [bdb_sectors_per_cluster] ; ax = (kernel_cluster - 2) * sectors_per_cluster
-    ; add ax, [cluster_data_start]       ; ax = (kernel_cluster - 2) * sectors_per_cluster + start_sector (calculated above)
+    mov ax, [stage1_cluster]
+    ; sub ax, 2                          ; ax = (stage1_cluster - 2) (-2 = reserved clusters)
+    ; mul byte [bdb_sectors_per_cluster] ; ax = (stage1_cluster - 2) * sectors_per_cluster
+    ; add ax, [cluster_data_start]       ; ax = (stage1_cluster - 2) * sectors_per_cluster + start_sector (calculated above)
     add ax, 31                         ; Does what a lot of that other code does
 
 
@@ -176,12 +176,12 @@ start:
     mov dl, [ebr_drive_number]
     call disk_read
 
-    add bx, [bdb_bytes_per_sector]    ; Will overflow bx if kernel.bin is larger than 64KB
+    add bx, [bdb_bytes_per_sector]    ; Will overflow bx if stage1.bin is larger than 64KB
     ; TODO:
     ;     Check if bx is 0xFFFF and increment the segment (es)
 
     ; Compute location of next cluster
-    mov ax, [kernel_cluster]
+    mov ax, [stage1_cluster]
     mov cx, 3
     mul cx
     mov cx, 2
@@ -204,17 +204,17 @@ start:
     cmp ax, 0x0FF8
     jae .read_finish                ; Jump out once we've read through all the clusters
 
-    mov [kernel_cluster], ax
-    jmp .load_kernel_loop
+    mov [stage1_cluster], ax
+    jmp .load_stage1_loop
 
 .read_finish:
-    ; Jump to kernel (finally)
+    ; Jump to stage1 (finally)
     mov dl, [ebr_drive_number]       ; Boot device in dl
-    mov ax, KERNEL_LOAD_SEGMENT      ; Set segment registers
+    mov ax, STAGE1_LOAD_SEGMENT      ; Set segment registers
     mov ds, ax
     mov es, ax
 
-    jmp KERNEL_LOAD_SEGMENT:KERNEL_LOAD_OFFSET
+    jmp STAGE1_LOAD_SEGMENT:STAGE1_LOAD_OFFSET
 
     jmp wait_key_and_reboot          ; Should never happen
 
@@ -253,8 +253,8 @@ floppy_fail:
     call puts
     jmp wait_key_and_reboot
 
-kernel_not_found_error:
-    mov si, msg_kernel_not_found
+stage1_not_found_error:
+    mov si, msg_stage1_not_found
     call puts
     jmp wait_key_and_reboot
 
@@ -369,13 +369,13 @@ disk_reset:
 
 msg_hello:            db 'Loading', ENDL, 0
 msg_read_failed:      db 'Floppy error', ENDL, 0
-msg_kernel_not_found: db 'STAGE1.BIN missing', ENDL, 0
-file_kernel_bin:      db 'STAGE1  BIN'
-kernel_cluster:       dw 0
+msg_stage1_not_found: db 'STAGE1.BIN missing', ENDL, 0
+file_stage1_bin:      db 'STAGE1  BIN'
+stage1_cluster:       dw 0
 ; cluster_data_start:   dw 0
 
-KERNEL_LOAD_SEGMENT   equ 0x2000     ; equ means #define
-KERNEL_LOAD_OFFSET    equ 0          ; it doesn't allocate memory
+STAGE1_LOAD_SEGMENT   equ 0x2000     ; equ means #define
+STAGE1_LOAD_OFFSET    equ 0          ; it doesn't allocate memory
 
 times 510-($-$$) db 0 ; Pad the program so that the signature begins 511 bytes into the sector
 dw 0xAA55
