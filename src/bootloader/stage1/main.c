@@ -1,10 +1,15 @@
 #include "stdint.h"
 #include "stdio.h"
+#include "x86.h"
 
 void _cdecl cstart_(uint16_t bootDrive) {
-    puts("Hello world from C!\r\n");
-    printf("Formatted %% %c %s\r\n", 'a', "string");
-    printf("Formatted %d %i %x %p %o %hd %hi %hhu %hhd\r\n", 1234, -5678, 0xdead, 0xbeef, 012345, (short)27, (short)-42, (unsigned char)20, (signed char)-10);
-    printf("Formatted %ld %lx %lld %llx\r\n", -100000000l, 0xdeadbeeful, 10200300400ll, 0xdeadbeeffeebdaedull);
+    uint8_t driveType;
+    uint16_t cylinders;
+    uint16_t sectors;
+    uint16_t heads;
+
+    x86_Disk_GetDriveParams(bootDrive, &driveType, &cylinders, &sectors, &heads);
+
+    printf("Type: %u\r\nCylinders: %u\r\nSectors: %u\r\nHeads: %u", driveType, cylinders, sectors, heads);
     for(;;);
 }
