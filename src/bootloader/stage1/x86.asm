@@ -87,7 +87,7 @@ _x86_Video_WriteCharTeletype:
     pop bp
     ret
 ;
-; void _cdecl x86_Disk_Reset(uint8_t driveNumber);
+; bool _cdecl x86_Disk_Reset(uint8_t driveNumber);
 ;
 global _x86_Disk_Reset
 _x86_Disk_Reset:
@@ -108,7 +108,7 @@ _x86_Disk_Reset:
     pop bp
     ret
 
-; void _cdecl x86_Disk_Read(uint8_t driveNumber,
+; bool _cdecl x86_Disk_Read(uint8_t driveNumber,
 ;                           uint16_t cylinder,
 ;                           uint16_t sector,
 ;                           uint16_t head,
@@ -157,7 +157,7 @@ _x86_Disk_Read:
     pop bp
     ret
 
-; void _cdecl x86_Disk_GetDriveParams(uint8_t driveNumber,
+; bool _cdecl x86_Disk_GetDriveParams(uint8_t driveNumber,
 ;                                     uint8_t *driveTypeOut,
 ;                                     uint16_t *cylindersOut,
 ;                                     uint16_t *sectorsOut,
