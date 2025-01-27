@@ -34,3 +34,4 @@ unsigned strlen(const char *str) {
     }
     return size;
 }
+

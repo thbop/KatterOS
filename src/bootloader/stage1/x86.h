@@ -23,3 +23,5 @@ bool _cdecl x86_Disk_GetDriveParams(uint8_t driveNumber,
                                     uint16_t *cylindersOut,
                                     uint16_t *sectorsOut,
                                     uint16_t *headsOut);
+
+

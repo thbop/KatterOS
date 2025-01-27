@@ -19,7 +19,6 @@ $(BUILD_DIR)/stage1.bin: $(OBJECTS_ASM) $(OBJECTS_C)
 	$(LD16) NAME $(BUILD_DIR)/stage1.bin FILE \{ $(OBJECTS_ASM) $(OBJECTS_C) \} OPTION MAP=$(BUILD_DIR)/stage1.map @linker.lnk
 
 $(BUILD_DIR)/stage1/c/%.obj: %.c always
-	export PATH="$PATH:/d/WATCOM/binnt64"
 	$(CC16) $(CFLAGS16) -fo=$@ $<
 
 $(BUILD_DIR)/stage1/asm/%.obj: %.asm always

@@ -1,6 +1,7 @@
 #pragma once
 #include "stdint.h"
 
-int memcpy(const void far *dst, const void far *src, uint16_t num);
+void far *memcpy(const void far *dst, const void far *src, uint16_t num);
 void far *memset(const void far *ptr, int value, uint16_t num);
 int memcmp(const void far *ptr1, const void far *ptr2, uint16_t num);
+

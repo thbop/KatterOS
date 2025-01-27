@@ -47,7 +47,7 @@ typedef struct {
     uint32_t firstCluster;
     uint32_t currentCluster;
     uint32_t currentSectorInCluster;
-    uint8_t buffer[SECTOR_SIZE]
+    uint8_t buffer[SECTOR_SIZE];
 
 } FAT_FileData;
 

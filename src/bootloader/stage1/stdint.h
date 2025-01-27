@@ -20,3 +20,5 @@ typedef uint8_t bool;
 #define false 0
 
 #define NULL ((void*)0)
+#define min(a,b) ( (a) < (b) ? (a) : (b) ) // Not super stable
+#define max(a,b) ( (a) > (b) ? (a) : (b) )
