@@ -41,4 +41,4 @@ bool FAT_Initialize(DISK *disk);
 FAT_FILE far *FAT_Open(DISK *disk, const char *path);
 uint32_t FAT_Read(DISK *disk, FAT_FILE far *file, uint32_t byteCount, void *buffer);
 bool FAT_ReadEntry(DISK *disk, FAT_FILE far *file, FAT_DirectoryEntry *dirEntry);
-void FAT_Close(DISK *disk);
+void FAT_Close(FAT_FILE far *file);

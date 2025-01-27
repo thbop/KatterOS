@@ -25,3 +25,12 @@ char *strcpy(char *dst, const char *src) {
     *dst = '\0';
     return dest;
 }
+
+unsigned strlen(const char *str) {
+    unsigned size = 0;
+    while (*str) {
+        ++str;
+        ++size;
+    }
+    return size;
+}
